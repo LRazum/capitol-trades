@@ -1,3 +1,8 @@
+# Copyright (c) 2026 Lovro Razum. All rights reserved.
+# PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, modification, or
+# distribution of this file, in whole or in part, via any medium, is strictly
+# prohibited without the prior written permission of Lovro Razum.
+# See the accompanying LICENSE file for full terms.
 """
 Capitol Trades Dashboard — Streamlit web app
 =============================================
