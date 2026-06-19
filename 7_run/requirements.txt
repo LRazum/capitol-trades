@@ -1,0 +1,12 @@
+# Capitol Trades pipeline — Python 3.10+
+pandas>=2.0
+numpy>=1.24
+pyarrow>=14.0
+scipy>=1.10
+scikit-learn>=1.3
+pydantic>=2.5
+requests>=2.31
+PyYAML>=6.0
+joblib>=1.3
+yfinance>=0.2.40
+streamlit>=1.30
