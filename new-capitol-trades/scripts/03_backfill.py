@@ -1,10 +1,14 @@
 #!/usr/bin/env python
 """
-03_backfill.py — populate Bronze from Quiver, compact, and build Silver (report only).
+03_backfill.py — populate Bronze from a scraped capitoltrades CSV, compact, build Silver.
 
-Pulls the Quiver bulk congressional feed once, commits to Bronze year-by-year, compacts
-cross-partition amendments, then derives Silver to confirm row counts. Bronze on disk is
-the source of truth; Silver is recomputed on demand by later stages.
+KEYLESS: this replaces the Quiver bulk pull with a local CSV (no API key required). It
+reads the CSV via ``config.get_congress_adapter()``, commits to Bronze year-by-year,
+compacts cross-partition amendments, then derives Silver to confirm row counts. Bronze on
+disk is the source of truth; Silver is recomputed on demand by later stages.
+
+The first run still resolves each unique ticker through OpenFIGI (keyless = rate-limited,
+then cached in data/processed/secmaster_cache.sqlite), so it is slower than reruns.
 """
 from __future__ import annotations
 
@@ -19,18 +23,22 @@ import config
 from capitol_ingest import (
     BronzeStore,
     HistoricalBackfill,
-    QuiverCongressAdapter,
     SilverDriver,
 )
 
 
 def main(args):
-    if not config.QUIVER_API_KEY:
-        raise SystemExit("Set QUIVER_API_KEY in your environment first.")
+    csv_path = Path(config.CAPITOL_TRADES_CSV)
+    if not csv_path.exists():
+        raise SystemExit(
+            f"capitoltrades CSV not found: {csv_path}\n"
+            "Set CAPITOL_TRADES_CSV in your environment (or drop the file at that path)."
+        )
     store = BronzeStore(config.BRONZE)
 
-    print(f"[1/3] Quiver bulk backfill {args.start} .. {args.end}")
-    adapter = QuiverCongressAdapter(config.QUIVER_API_KEY, mode="bulk")
+    print(f"[1/3] capitoltrades CSV backfill {args.start} .. {args.end}")
+    print(f"      source: {csv_path}")
+    adapter = config.get_congress_adapter()           # <-- keyless; was QuiverCongressAdapter
     bf = HistoricalBackfill(adapter, store, granularity="year")
     print("   ", bf.run_bulk_once(start=args.start, end=args.end))
 

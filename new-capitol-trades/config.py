@@ -1,9 +1,11 @@
 """
 config.py — single source of truth for paths, credentials, and pipeline parameters.
 
-All scripts import this. Secrets come from environment variables (never hard-code keys):
-    export QUIVER_API_KEY=...        # required for backfill + live screening
-    export OPENFIGI_API_KEY=...      # optional, raises the security-master rate limit
+All scripts import this. The congressional-trade feed is keyless: it comes from a local CSV
+scraped from capitoltrades.com (see CAPITOL_TRADES_CSV below), so **no API key is required**.
+
+    export CAPITOL_TRADES_CSV=/path/to/capitol_trades_cache.csv   # optional; defaults to project root
+    export OPENFIGI_API_KEY=...                                   # OPTIONAL, raises the security-master rate limit
 """
 from __future__ import annotations
 
@@ -33,8 +35,13 @@ SECMASTER_CACHE = PROCESSED / "secmaster_cache.sqlite"
 MODEL_PATH = MODELS / "screening_model.joblib"
 FEATURES_JSON = MODELS / "feature_columns.json"
 
-# --- credentials ----------------------------------------------------------- #
-QUIVER_API_KEY = os.getenv("QUIVER_API_KEY", "")
+# --- congressional trade source (keyless: scraped capitoltrades CSV) -------- #
+# Default location is the project root; override with the CAPITOL_TRADES_CSV env var.
+CAPITOL_TRADES_CSV = os.getenv("CAPITOL_TRADES_CSV", str(ROOT / "capitol_trades_cache.csv"))
+
+# --- credentials (none required) ------------------------------------------- #
+# No API keys are needed to run the pipeline. OPENFIGI_API_KEY is OPTIONAL — it only raises
+# the security-master rate limit on the first backfill; all resolutions are cached afterward.
 OPENFIGI_API_KEY = os.getenv("OPENFIGI_API_KEY", "")
 
 # --- parameters ------------------------------------------------------------ #
@@ -52,6 +59,18 @@ GOLD = GoldConfig(
 
 
 # --- provider factories (lazy; build the real components on demand) -------- #
+def get_congress_adapter():
+    """Keyless congressional-trade source: the scraped capitoltrades CSV.
+
+    This is the drop-in replacement for the old Quiver feed. The buy feed carries no
+    buy/sell column, so every row is treated as a Purchase; pass txn_type_col=... to the
+    adapter if your CSV ever contains sells. (To go back to a paid feed, return
+    QuiverCongressAdapter(os.getenv("QUIVER_API_KEY"), mode=...) here instead.)
+    """
+    from capitol_ingest import CapitolTradesCsvAdapter
+    return CapitolTradesCsvAdapter(CAPITOL_TRADES_CSV)
+
+
 def get_security_master():
     from capitol_ingest import NullListingHistory, OpenFigiResolver, SecurityMaster
     # Swap NullListingHistory for a CRSP/Sharadar/EODHD-backed provider to add delisting data.

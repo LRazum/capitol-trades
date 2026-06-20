@@ -2,9 +2,15 @@
 """
 05_run_screener.py — live daily screen (the cron entry point).
 
-Loads the persisted screening model, pulls recent Quiver trades through
-Bronze -> Silver -> Gold with the real providers, screens to actionable signals, and writes
+KEYLESS: loads the persisted screening model, pulls recent trades from your scraped
+capitoltrades CSV (via ``config.get_congress_adapter()``) through Bronze -> Silver -> Gold
+with the real providers, screens to actionable signals, and writes
 signals/actionable_latest.parquet (+ a dated copy) for the Streamlit dashboard.
+
+Because the source is a local CSV, "recent" means "recent in the CSV": re-run your scraper
+to refresh capitol_trades_cache.csv before each screen, or the screener will keep seeing the
+same window of rows. Re-ingesting is idempotent (deterministic source_record_id), so running
+it repeatedly against the same CSV does not duplicate Bronze rows.
 """
 from __future__ import annotations
 
@@ -19,14 +25,17 @@ import config
 from capitol_ingest import (
     BronzeStore,
     DailyScreener,
-    QuiverCongressAdapter,
     earliest_filing_dates,
 )
 
 
 def main(args):
-    if not config.QUIVER_API_KEY:
-        raise SystemExit("Set QUIVER_API_KEY in your environment first.")
+    csv_path = Path(config.CAPITOL_TRADES_CSV)
+    if not csv_path.exists():
+        raise SystemExit(
+            f"capitoltrades CSV not found: {csv_path}\n"
+            "Set CAPITOL_TRADES_CSV in your environment (or drop the file at that path)."
+        )
     if not config.MODEL_PATH.exists():
         raise SystemExit("No trained model. Run scripts/04_research.py first.")
 
@@ -38,7 +47,7 @@ def main(args):
     originals = earliest_filing_dates(store.read()) if any(store.root.glob("**/data.parquet")) else {}
 
     screener = DailyScreener(
-        adapter=QuiverCongressAdapter(config.QUIVER_API_KEY, mode="live"),
+        adapter=config.get_congress_adapter(),     # <-- keyless; was QuiverCongressAdapter(mode="live")
         store=store,
         security_master=config.get_security_master(),
         price_provider=config.get_price_provider(),

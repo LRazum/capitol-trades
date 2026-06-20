@@ -23,6 +23,7 @@ from .security_master import (
 )
 from .storage import BronzeStore, latest_by_key
 from .quiver import QuiverCongressAdapter
+from .capitol_trades_csv import CapitolTradesCsvAdapter
 from .bronze import disclosures_to_frame, ingest_bronze
 from .silver import SilverDriver, SilverResult
 from .backfill import HistoricalBackfill, month_windows, year_windows
@@ -85,7 +86,7 @@ __all__ = [
     "Reject", "VendorAdapter", "normalize_one", "run_silver",
     "IdentifierResolver", "ListingHistoryProvider", "ListingStatus",
     "NullListingHistory", "OpenFigiResolver", "SecurityMaster", "normalize_name",
-    "BronzeStore", "latest_by_key", "QuiverCongressAdapter",
+    "BronzeStore", "latest_by_key", "QuiverCongressAdapter", "CapitolTradesCsvAdapter",
     "disclosures_to_frame", "ingest_bronze",
     "SilverDriver", "SilverResult",
     "HistoricalBackfill", "month_windows", "year_windows",

@@ -14,6 +14,7 @@ from __future__ import annotations
 import abc
 import hashlib
 import math
+import requests
 from datetime import date
 from typing import Optional
 
@@ -64,33 +65,74 @@ class SyntheticPriceProvider(PriceProvider):
 
 
 class YFinancePriceProvider(PriceProvider):
-    """Production provider. Memoizes by exact (ticker, start, end) so the gold builder's
-    one-fetch-per-ticker pattern doesn't repeat downloads."""
+    """Production provider that bypasses `yfinance` text parsing bugs. 
+    It queries the Yahoo Chart API directly using integer UNIX timestamps."""
 
     def __init__(self, auto_adjust: bool = True):
         self.auto_adjust = auto_adjust
         self._cache: dict[tuple, pd.Series] = {}
+        # A standard user-agent so Yahoo doesn't block us
+        self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+    @staticmethod
+    def _to_yahoo(ticker: str) -> str:
+        """Map a disclosure ticker to Yahoo's symbology. Yahoo uses a dash for share
+        classes and special suffixes (e.g. BRK/B -> BRK-B, BRK.B -> BRK-B, BF.B -> BF-B),
+        whereas the feeds use a slash or dot. Adapters pass tickers verbatim; the Yahoo
+        spelling is a price-source concern, so it's handled here, not upstream."""
+        return (ticker or "").strip().upper().replace("/", "-").replace(".", "-")
 
     def get(self, ticker: str, start: date, end: date) -> pd.Series:
-        key = (ticker, str(start), str(end))
+        key = (ticker, str(start), str(end))   # cache by the ORIGINAL ticker
         if key in self._cache:
             return self._cache[key]
-        import yfinance as yf  # lazy import
+            
+        symbol = self._to_yahoo(ticker)
+        
+        # Convert pandas timestamps to Epoch UNIX integers
+        p1 = int(pd.Timestamp(start).timestamp())
+        p2 = int((pd.Timestamp(end) + pd.Timedelta(days=1)).timestamp())
+        
+        url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?period1={p1}&period2={p2}&interval=1d"
 
-        df = yf.download(
-            ticker,
-            start=str(start),
-            end=str(pd.Timestamp(end) + pd.Timedelta(days=1)),  # yf end is exclusive
-            auto_adjust=self.auto_adjust,
-            progress=False,
-        )
-        if df is None or df.empty:
+        try:
+            resp = requests.get(url, headers=self.headers, timeout=10)
+            if resp.status_code != 200:
+                s = pd.Series(dtype=float)
+            else:
+                data = resp.json()
+                res = data.get("chart", {}).get("result")
+                
+                if not res:
+                    s = pd.Series(dtype=float)
+                else:
+                    ts = res[0].get("timestamp", [])
+                    if not ts:
+                        s = pd.Series(dtype=float)
+                    else:
+                        closes = None
+                        # Try grabbing Adjusted Close first
+                        if self.auto_adjust:
+                            adj = res[0].get("indicators", {}).get("adjclose", [])
+                            if adj and "adjclose" in adj[0]:
+                                closes = adj[0]["adjclose"]
+                        
+                        # Fallback to standard close
+                        if not closes:
+                            quote = res[0].get("indicators", {}).get("quote", [])
+                            if quote and "close" in quote[0]:
+                                closes = quote[0]["close"]
+                                
+                        if closes and len(ts) == len(closes):
+                            # Pass 's' (seconds) to bypass string parsing completely
+                            s = pd.Series(closes, index=pd.to_datetime(ts, unit="s"))
+                            # Normalize index to midnight and make timezone-naive
+                            s.index = s.index.tz_localize(None).normalize()
+                            s = s.dropna()
+                        else:
+                            s = pd.Series(dtype=float)
+        except Exception:
             s = pd.Series(dtype=float)
-        else:
-            close = df["Close"]
-            if isinstance(close, pd.DataFrame):  # multiindex when given a list
-                close = close.iloc[:, 0]
-            s = close.copy()
-            s.index = pd.to_datetime(s.index)
+
         self._cache[key] = s
         return s
